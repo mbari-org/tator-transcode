@@ -1,0 +1,219 @@
+openapi: 3.0.2
+info:
+  version: '0.0.0'
+  title: Transcode
+description: |
+  A lightweight API for video transcoding
+paths:
+  /jobs:
+    put:
+      summary: Returns a list of running transcodes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/Filter'
+      responses:
+        '200':
+          description: List of running jobs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+        '400':
+          description: Error retrieving the transcode jobs.
+    delete:
+      summary: Deletes a list of running transcodes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/Filter'
+      responses:
+        '200':
+          description: List of running jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    description: Message indicating success.
+                    type: string
+        '400':
+          description: Error deleting the transcode jobs.
+    post:
+      summary: Create one or more transcode jobs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/Job'
+      responses:
+        '201':
+          description: Successful creation of jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    description: Message indicating success.
+                    type: string
+        '400':
+          description: Error creating the transcode jobs.
+components:
+  schemas:
+    Header:
+      description: Header name and value used in a request.
+      type: object
+      required: [name, value]
+      properties:
+        name:
+          description: Name of the header.
+          type: string
+        value:
+          description: Value of the header.
+          oneOf:
+            - type: string
+            - type: number
+    Upload:
+      description: Specifies where transcoded video should be uploaded.
+      type: object
+      required: [url_list, chunk_size]
+      properties:
+        url_list:
+          description: List of URLs where video data will be uploaded.
+          type: array
+          items:
+            type: string
+        chunk_size:
+          description: Maximum chunk size for each URL in bytes.
+          type: integer
+          minimum: 0
+        header_list:
+          description: Header values that should be used in each request.
+          type: array
+          items:
+            $ref: '#/components/schemas/Header'
+    Webhook:
+      description: Specifies a request that should be made during transcode.
+      type: object
+      required: [url, method, stage]
+      properties:
+        url:
+          description: URL where request should be sent.
+          type: string
+        method:
+          description: HTTP method that should be used for the request.
+          type: string
+          enum: [POST, PUT, GET, OPTIONS, DELETE]
+        stage:
+          description: When the webhook should be triggered.
+          type: string
+          enum: [start, progress, completion]
+        header_list:
+          description: List of headers that should be included with the request.
+          type: array
+          items:
+            $ref: '#/components/schemas/Header'
+    Encode:
+      description: Encode settings for one output file.
+      type: object
+      required: [codec, width, height, upload_list]
+      properties:
+        codec:
+          description: Codec. If an audio codec is selected, an audio stream will be used as input from the file.
+          type: string
+          enum: [avc, hevc, av1, aac, copy]
+        width:
+          description: Width in pixels
+          type: integer
+          minimum: 1
+        height:
+          description: Height in pixels
+          type: integer
+          minimum: 1
+        rate:
+          description: Frame rate
+          type: number
+          minimum: 0
+        settings:
+          description: Other settings for the encode. May include stream selectors, presets, crf, etc.
+          type: object
+          additionalProperties: true
+        upload_list:
+          description: List of uploads for completed file.
+          type: array
+          items:
+            $ref: '#/components/schemas/Upload'
+        webhook_list:
+          description: List of webhooks for this encode.
+          type: array
+          items:
+            $ref: '#/components/schemas/Webhook'
+    Metadata:
+      description: Optional descriptors for a job.
+      type: object
+      properties:
+        status:
+          description: Overall status of the job. Set by the service (ignored on job creation).
+          type: string
+          enum: [pending, running, completed, failed]
+        encode_status:
+          type: array
+          items:
+            description: Status of individual encodes. Set by the service (ignored on job creation).
+            type: string
+            enum: [pending, running, completed]
+        artifacts:
+          description: List of locations of job artifacts. Set by the service (ignored on job creation).
+          type: array
+          items:
+            type: string
+      additionalProperties: true # User defined on job creation.
+    Job:
+      description: Represents workload associated with one input file.
+      type: object
+      required: [url, encode_list]
+      properties:
+        url:
+          description: URL where source video file is hosted.
+          type: string
+        header_list:
+          description: List of headers used for download requests on the source video file.
+          type: array
+          items:
+            $ref: Header
+        encode_list:
+          description: List of encode settings, one per output file.
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Encode'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    Filter:
+      description: Metadata filter for retrieving jobs. Only exact matches with string or integer values are supported.
+      type: object
+      required: [key, value]
+      properties:
+        key:
+          description: Metadata key name.
+          type: string
+        value:
+          description: Metadata value.
+          oneOf:
+            - type: integer
+            - type: string
