@@ -65,16 +65,24 @@ def _project_key(project):
     return f"transcode_project_{project}"
 
 
+def _internal_storage_host():
+    internal = os.getenv("DEFAULT_LIVE_INTERNAL_HOST", "").strip().rstrip("/")
+    if internal:
+        return internal
+    return os.getenv("DEFAULT_LIVE_ENDPOINT_URL", "").strip().rstrip("/")
+
+
 def _use_internal_host(url):
-    """Checks if the download url contains localhost, if so
-    replaces external host with minio host.
+    """Rewrite browser-facing storage URLs for the transcode worker.
+
+    Workers must not download via localhost (that is the worker container itself).
+    Prefer DEFAULT_LIVE_INTERNAL_HOST (nginx /objects/ proxy) over direct endpoint_url
+    when storage is reached through an external S3 gateway.
     """
-    hostname = urlparse(url).hostname
-    is_localhost = hostname in ["localhost", "127.0.0.1"]
-    if is_localhost:
-        external_host = os.getenv("DEFAULT_LIVE_EXTERNAL_HOST")
-        minio_host = os.getenv("DEFAULT_LIVE_ENDPOINT_URL")
-        url = url.replace(external_host, minio_host)
+    external_host = os.getenv("DEFAULT_LIVE_EXTERNAL_HOST", "").strip().rstrip("/")
+    target = _internal_storage_host()
+    if external_host and target and external_host in url:
+        url = url.replace(external_host, target)
     return url
 
 
@@ -164,6 +172,8 @@ def jobs_post(job_list: List[Job]) -> List[Job]:
                 job.url = _use_internal_host(job.url)
             append_value(rds, _gid_key(job.gid), job.uid)
             append_value(rds, _project_key(job.project), job.uid)
+            # Fields the CLI always defines but the REST Job model omits; RQ passes
+            # a SimpleNamespace to tator.transcode.__main__.transcode_main.
             args = {
                 **job.dict(),
                 "path": None,
@@ -171,9 +181,14 @@ def jobs_post(job_list: List[Job]) -> List[Job]:
                 "cleanup": False,
                 "extension": None,
                 "hwaccel": False,
-                "force_fps": -1,  # TODO: could be exposed to REST
+                "force_fps": -1,
                 "inhibit_upload": False,
+                "bucket_id": None,
+                "filter_complex": None,
+                "section": None,
             }
+            if args.get("media_id") is None:
+                args["media_id"] = -1
             args = SimpleNamespace(**args)
             qjob_list.append(
                 queue.enqueue(
